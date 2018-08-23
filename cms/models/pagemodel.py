@@ -235,6 +235,12 @@ class Page(models.Model):
         on_delete=models.CASCADE,
     )
 
+    canonical = models.ForeignKey(
+        'self',
+        blank=True,
+        null=True,
+    )
+
     # Managers
     objects = PageManager()
 
@@ -960,6 +966,7 @@ class Page(models.Model):
         public_page.publisher_is_draft = False
         public_page.languages = ','.join(public_languages)
         public_page.node = self.node
+        public_page.canonical = self.canonical
         public_page.save()
 
         # Copy the page translation (title) matching language
@@ -996,6 +1003,47 @@ class Page(models.Model):
         import cms.signals as cms_signals
 
         cms_signals.post_publish.send(sender=Page, instance=self, language=language)
+
+        # Find related pages that define the current one as the canonical to update them also.
+        if self.pk:
+            from cms.extensions import extension_pool
+            canonicals_published = Page.objects.filter(
+                canonical=public_page.pk,
+                publisher_is_draft=False
+            )
+            canonicals_draft = Page.objects.filter(
+                canonical=public_page.pk,
+                publisher_is_draft=True
+            )
+            # We WANT published before drafts
+            # The reason is, when we will delete the extensions of the pages,
+            # the published extensions will cascade and delete the drafted extensions...
+            # If we start the process with the drafted, it will be deleted when we will do the process for the published
+            # because of the cascading delete.
+            # So : published, then drafted
+            from itertools import chain
+            canonicals = list(chain(canonicals_published, canonicals_draft))
+
+            import logging
+            logger = logging.getLogger('jindexe_cms')
+
+            for canonical in canonicals:
+                # delete existing placeholders
+                for placeholder in canonical.placeholders.iterator():
+                    placeholder.delete()
+
+                # copy the placeholders (and plugins on those placeholders!)
+                for placeholder in public_page.placeholders.iterator():
+                    new_placeholder = copy.copy(placeholder)
+                    new_placeholder.pk = None
+                    new_placeholder.save()
+                    canonical.placeholders.add(new_placeholder)
+                    placeholder.copy_plugins(new_placeholder, language=language)
+
+                for extension in extension_pool.get_page_extensions(canonical):
+                    extension.delete()
+                extension_pool.copy_extensions(public_page, canonical)
+                canonical.save()
 
         public_page.clear_cache(
             language,

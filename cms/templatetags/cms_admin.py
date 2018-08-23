@@ -164,6 +164,9 @@ class PageSubmitRow(InclusionTag):
         language = context.get('language', '')
         filled_languages = context.get('filled_languages', [])
 
+        if context.get('page').canonical:
+            change_advanced_settings = False
+
         show_buttons = language in filled_languages
 
         if show_buttons:

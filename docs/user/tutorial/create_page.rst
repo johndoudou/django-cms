@@ -74,3 +74,29 @@ in the hierarchy - a sibling.
 
 Once again, give the page a *Title* and some basic text content. Continue making changes to content
 and formatting, and then **Publish** it as you did previously.
+
+
+***********************
+Create a duplicate page
+***********************
+
+In some cases, you'll want to have the same content in two different pages
+(duplicate content & canonical).
+
+For example you may have a page about a building which is both a historical monument and a museum,
+and would want to have the same content as a sub-page of both 'museums' and 'monuments'.
+
+You could use a **redirection** for this, but then the breadcrumbs may not follow your desired
+content tree.
+
+To create duplicate content, first create the canonical (master) page as you would any other page.
+
+Next, create another page and point the *Duplicate of* field to the canonical page.
+
+You will not be able to modify the *contents* of the duplicate page, but you can have a different
+*Title* and slug for the duplicate page.
+
+**Save** and **Publish** the page.
+
+Now, whenever you modify the canonical page and **Publish** it, the duplicate page is updated
+automatically with the new content.
