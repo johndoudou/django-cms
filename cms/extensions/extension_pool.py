@@ -76,7 +76,7 @@ class ExtensionPool(object):
 
         if self.page_extensions:
             self._copy_page_extensions(draft_page, public_page, language, clone=False)
-            self._remove_orphaned_page_extensions()
+            self._remove_orphaned_page_extensions(draft_page)
         if self.title_extensions:
             self._copy_title_extensions(draft_page, None, language, clone=False)
             self._remove_orphaned_title_extensions()
@@ -107,18 +107,19 @@ class ExtensionPool(object):
             languages = target_page.get_languages()
         if self.page_extensions:
             self._copy_page_extensions(source_page, target_page, None, clone=True)
-            self._remove_orphaned_page_extensions()
+            self._remove_orphaned_page_extensions(source_page)
         for language in languages:
             if self.title_extensions:
                 self._copy_title_extensions(source_page, target_page, language, clone=True)
                 self._remove_orphaned_title_extensions()
 
-    def _remove_orphaned_page_extensions(self):
+    def _remove_orphaned_page_extensions(self, page):
         for extension in self.page_extensions:
-            extension.objects.filter(
-                extended_object__publisher_is_draft=False,
-                draft_extension=None
-            ).delete()
+            if page.publisher_is_draft:
+                extension.objects.filter(
+                    extended_object__publisher_is_draft=False,
+                    draft_extension=None
+                ).delete()
 
     def _remove_orphaned_title_extensions(self):
         for extension in self.title_extensions:

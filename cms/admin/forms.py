@@ -143,6 +143,9 @@ class BasePageForm(forms.ModelForm):
 
 
 class AddPageForm(BasePageForm):
+
+    from cms.forms.fields import PageSmartLinkField
+
     source = forms.ModelChoiceField(
         label=_(u'Page type'),
         queryset=Page.objects.filter(
@@ -157,6 +160,14 @@ class AddPageForm(BasePageForm):
         widget=forms.HiddenInput(),
     )
 
+    canonical_url = PageSmartLinkField(
+        label=_('Canonical'),
+        required=False,
+        help_text=_('Canonical link.'),
+        placeholder_text=_('Start typing...'),
+        ajax_view='admin:cms_page_get_published_pagelist'
+    )
+
     class Meta:
         model = Page
         fields = ['source']
@@ -165,6 +176,9 @@ class AddPageForm(BasePageForm):
         super(AddPageForm, self).__init__(*args, **kwargs)
 
         source_field = self.fields.get('source')
+
+        if 'canonical_url' in self.fields:
+            self.fields['canonical_url'].widget.language = self._language
 
         if not source_field or source_field.widget.is_hidden:
             return
@@ -259,12 +273,38 @@ class AddPageForm(BasePageForm):
     def save(self, *args, **kwargs):
         source = self.cleaned_data.get('source')
         parent = self.cleaned_data.get('parent_node')
+        canonical_url = self.cleaned_data.get('canonical_url')
 
         if source:
             new_page = self.from_source(source, parent=parent)
 
             for lang in source.get_languages():
                 source._copy_contents(new_page, lang)
+        elif canonical_url:
+            # Retrieve the targeted page
+            from django.urls import resolve
+            page_metadata = resolve(canonical_url)
+            canonical_page = Page.objects.get(
+                title_set__path=page_metadata.kwargs['slug'],
+                publisher_is_draft=False,
+                title_set__language=self._language
+            )
+            # Do NOT use from_source : we want to copy extensions !
+            new_page = canonical_page.copy(
+                site=self._site,
+                parent_node=parent,
+                language=self._language,
+                translations=False,
+                permissions=False,
+                extensions=True,
+            )
+            new_page.publisher_is_draft = True
+            new_page.canonical = canonical_page
+            new_page.update(is_page_type=False, in_navigation=True)
+
+            for lang in canonical_page.get_languages():
+                canonical_page._copy_contents(new_page, lang)
+
         else:
             new_page = super(AddPageForm, self).save(commit=False)
             new_page.template = self.get_template()
@@ -1295,6 +1335,7 @@ class RequestToolbarForm(forms.Form):
     cms_path = forms.CharField(required=False)
 
     def clean(self):
+
         data = self.cleaned_data
 
         obj_id = data.get('obj_id')

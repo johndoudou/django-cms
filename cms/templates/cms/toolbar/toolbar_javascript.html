@@ -133,7 +133,9 @@ CMS.$(function () {
 
     // extends API
     CMS.API.Clipboard = new CMS.Clipboard();
+    {% if current_page.canonical is None %}
     CMS.API.StructureBoard = new CMS.StructureBoard();
+    {% endif %}
     CMS.API.Messages = new CMS.Messages();
     CMS.API.Tooltip = new CMS.Tooltip();
     CMS.API.Toolbar = new CMS.Toolbar();

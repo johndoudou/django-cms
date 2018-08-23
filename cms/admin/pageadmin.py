@@ -103,7 +103,7 @@ class BasePageAdmin(PlaceholderAdminMixin, admin.ModelAdmin):
     form = AddPageForm
     ordering = ('node__path',)
     search_fields = ('=id', 'title_set__slug', 'title_set__title', 'reverse_id')
-    add_general_fields = ['title', 'slug', 'language', 'template']
+    add_general_fields = ['title', 'slug', 'language', 'template', 'canonical']
     change_list_template = "admin/cms/page/tree/base.html"
     actions_menu_template = 'admin/cms/page/tree/actions_dropdown.html'
     page_tree_row_template = 'admin/cms/page/tree/menu.html'

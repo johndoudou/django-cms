@@ -267,13 +267,20 @@ class PageToolbar(CMSToolbar):
         build_url = '{}?{}'.format(self.toolbar.request_path, get_cms_setting('CMS_TOOLBAR_URL__BUILD'))
         edit_url = '{}?{}'.format(self.toolbar.request_path, get_cms_setting('CMS_TOOLBAR_URL__EDIT_ON'))
 
-        if self.request.user.has_perm("cms.use_structure"):
+        if self.request.current_page.canonical:
+            switcher = self.toolbar.add_button(
+                _('Go to canonical'),
+                self.request.current_page.canonical.get_absolute_url(self.current_lang),
+                side=self.toolbar.RIGHT,
+                extra_classes=('cms-structure-btn', 'cms-canonical-btn')
+            )
+        elif self.request.user.has_perm("cms.use_structure"):
             switcher = self.toolbar.add_button_list('Mode Switcher', side=self.toolbar.RIGHT,
                                                     extra_classes=extra_classes)
             switcher.add_button(_('Structure'), build_url, active=structure_active, disabled=False,
-                    extra_classes='cms-structure-btn')
+                    extra_classes=('cms-structure-btn'))
             switcher.add_button(_('Content'), edit_url, active=edit_mode_active, disabled=False,
-                    extra_classes='cms-content-btn')
+                    extra_classes=('cms-content-btn'))
 
     def get_title(self):
         try:
@@ -627,13 +634,14 @@ class PageToolbar(CMSToolbar):
                                              on_close=refresh)
 
             # advanced settings
-            advanced_url = add_url_parameters(advanced_url, language=self.toolbar.language)
-            can_change_advanced = self.page.has_advanced_settings_permission(self.request.user)
-            advanced_disabled = not edit_mode or not can_change_advanced
-            current_page_menu.add_modal_item(_('Advanced settings'), url=advanced_url, disabled=advanced_disabled)
+            if not self.page.canonical:
+                advanced_url = add_url_parameters(advanced_url, language=self.toolbar.language)
+                can_change_advanced = self.page.has_advanced_settings_permission(self.request.user)
+                advanced_disabled = not edit_mode or not can_change_advanced
+                current_page_menu.add_modal_item(_('Advanced settings'), url=advanced_url, disabled=advanced_disabled)
 
             # templates menu
-            if edit_mode:
+            if edit_mode and not self.page.canonical:
                 if self.page.is_page_type:
                     action = admin_reverse('cms_pagetype_change_template', args=(self.page.pk,))
                 else:
@@ -664,7 +672,7 @@ class PageToolbar(CMSToolbar):
                 current_page_menu.add_break(PAGE_MENU_SECOND_BREAK)
 
             # permissions
-            if self.permissions_activated:
+            if self.permissions_activated and not self.page.canonical:
                 permissions_url = admin_reverse('cms_page_permissions', args=(self.page.pk,))
                 permission_disabled = not edit_mode
 

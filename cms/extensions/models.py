@@ -1,5 +1,7 @@
 from django.db.models import ManyToManyField
 
+from django.core.exceptions import ObjectDoesNotExist
+
 from cms.constants import PUBLISHER_STATE_DIRTY
 from django.db import models
 
@@ -63,7 +65,10 @@ class BaseExtension(models.Model):
         target_prime = getattr(target, 'publisher_public')
         if target_prime:
             related_name = self.__class__.__name__.lower()
-            clone_prime = getattr(target_prime, related_name)
+            try:
+                clone_prime = getattr(target_prime, related_name)
+            except ObjectDoesNotExist:
+                clone_prime = None
             if clone_prime:
                 clone.public_extension = clone_prime
             else:
