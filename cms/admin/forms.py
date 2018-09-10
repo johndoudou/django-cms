@@ -281,11 +281,19 @@ class AddPageForm(BasePageForm):
             for lang in source.get_languages():
                 source._copy_contents(new_page, lang)
         elif canonical_url:
-            # Retrieve the targeted page
-            from django.urls import resolve
-            page_metadata = resolve(canonical_url)
+            # Remove language from the URL
+            from django.conf import settings
+            for lang in settings.LANGUAGES:
+                if canonical_url.startswith('/{}/'.format(lang[0])):
+                    length = len(lang[0]) + 2 # + '/'*2
+                    canonical_url = canonical_url[length:]
+                    break
+            # Remove the trailing '/'
+            canonical_url = canonical_url.rstrip('/')
+
+            # Retrieve the targeted page object
             canonical_page = Page.objects.get(
-                title_set__path=page_metadata.kwargs['slug'],
+                title_set__path=canonical_url,
                 publisher_is_draft=False,
                 title_set__language=self._language
             )
