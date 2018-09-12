@@ -25,6 +25,7 @@ from cms.models.permissionmodels import User
 from cms.plugin_pool import plugin_pool
 from cms.signals.apphook import set_restart_trigger
 from cms.utils.conf import get_cms_setting
+from cms.utils.page import generate_title_translations_from_canonical
 from cms.utils.compat.forms import UserChangeForm
 from cms.utils.i18n import get_language_list, get_language_object
 from cms.utils.permissions import (
@@ -198,6 +199,27 @@ class AddPageForm(BasePageForm):
         if len(choices) < 2:
             source_field.widget = forms.HiddenInput()
 
+    def create_path(self, slug, lang, parent_node):
+        data = self.cleaned_data
+        if parent_node:
+            slug = slug
+            parent_path = parent_node.item.get_path(lang)
+            path = u'%s/%s' % (parent_path, slug) if parent_path else slug
+        else:
+            path = slug
+
+        try:
+            # Validate the url
+            validate_url_uniqueness(
+                self._site,
+                path=path,
+                language=lang,
+            )
+        except ValidationError as error:
+            self.add_error('slug', error)
+
+        return path
+
     def clean(self):
         data = self.cleaned_data
 
@@ -207,25 +229,53 @@ class AddPageForm(BasePageForm):
             return data
 
         parent_node = data.get('parent_node')
+        canonical_url = data.get('canonical_url')
 
-        if parent_node:
-            slug = data['slug']
-            parent_path = parent_node.item.get_path(self._language)
-            path = u'%s/%s' % (parent_path, slug) if parent_path else slug
-        else:
-            path = data['slug']
+        paths = {}
+        slugs = {}
+        titles = {}
 
-        try:
-            # Validate the url
-            validate_url_uniqueness(
-                self._site,
-                path=path,
-                language=self._language,
+        if canonical_url:
+            # Remove language from the URL
+            from django.conf import settings
+            for lang in settings.LANGUAGES:
+                if canonical_url.startswith('/{}/'.format(lang[0])):
+                    length = len(lang[0]) + 2 # + '/'*2
+                    canonical_url = canonical_url[length:]
+                    break
+            # Remove the trailing '/'
+            canonical_url = canonical_url.rstrip('/')
+            # Retrieve the targeted page object
+            canonical = Page.objects.get(
+                title_set__path=canonical_url,
+                publisher_is_draft=False,
             )
-        except ValidationError as error:
-            self.add_error('slug', error)
+            for lang in canonical.get_languages():
+                if lang == self._language:
+                    slugs[lang] = data['slug']
+                    titles[lang] = data['title']
+                    # Use create_path to validate the slug and display error if collision
+                    paths[lang] = self.create_path(data['slug'], lang, parent_node)
+                else:
+                    # Use generate_... to compute a valid (unique) slug automatically
+                    # We avoid collisions hence we do not handle errors
+                    slugs[lang], paths[lang], titles[lang] = generate_title_translations_from_canonical(
+                        parent_node,
+                        canonical,
+                        self._site,
+                        lang
+                    )
+
+            data['canonical'] = canonical
         else:
-            data['path'] = path
+            slug = data['slug']
+            paths[self._language] = self.create_path(slug, self._language, parent_node)
+            slugs[self._language] = slug
+            titles[self._language] = data['title']
+
+        data['paths'] = paths
+        data['slugs'] = slugs
+        data['titles']= titles
         return data
 
     def clean_parent_node(self):
@@ -235,14 +285,18 @@ class AddPageForm(BasePageForm):
             raise ValidationError("Site doesn't match the parent's page site")
         return parent_node
 
-    def create_translation(self, page):
+    def create_translation(self, lang, page):
         data = self.cleaned_data
+
+        path = data['paths'][lang]
+        slug = data['slugs'][lang]
+        title = data['titles'][lang]
         title_kwargs = {
             'page': page,
-            'language': self._language,
-            'slug': data['slug'],
-            'path': data['path'],
-            'title': data['title'],
+            'language': lang,
+            'slug': slug,
+            'path': path,
+            'title': title,
         }
 
         if 'menu_title' in data:
@@ -273,45 +327,20 @@ class AddPageForm(BasePageForm):
     def save(self, *args, **kwargs):
         source = self.cleaned_data.get('source')
         parent = self.cleaned_data.get('parent_node')
-        canonical_url = self.cleaned_data.get('canonical_url')
+        canonical = self.cleaned_data.get('canonical')
+
+        if canonical:
+            source = canonical
+            source.publisher_is_draft = True
 
         if source:
             new_page = self.from_source(source, parent=parent)
 
             for lang in source.get_languages():
                 source._copy_contents(new_page, lang)
-        elif canonical_url:
-            # Remove language from the URL
-            from django.conf import settings
-            for lang in settings.LANGUAGES:
-                if canonical_url.startswith('/{}/'.format(lang[0])):
-                    length = len(lang[0]) + 2 # + '/'*2
-                    canonical_url = canonical_url[length:]
-                    break
-            # Remove the trailing '/'
-            canonical_url = canonical_url.rstrip('/')
 
-            # Retrieve the targeted page object
-            canonical_page = Page.objects.get(
-                title_set__path=canonical_url,
-                publisher_is_draft=False,
-                title_set__language=self._language
-            )
-            # Do NOT use from_source : we want to copy extensions !
-            new_page = canonical_page.copy(
-                site=self._site,
-                parent_node=parent,
-                language=self._language,
-                translations=False,
-                permissions=False,
-                extensions=True,
-            )
-            new_page.publisher_is_draft = True
-            new_page.canonical = canonical_page
-            new_page.update(is_page_type=False, in_navigation=True)
-
-            for lang in canonical_page.get_languages():
-                canonical_page._copy_contents(new_page, lang)
+            if canonical:
+                new_page.canonical = source
 
         else:
             new_page = super(AddPageForm, self).save(commit=False)
@@ -319,13 +348,19 @@ class AddPageForm(BasePageForm):
             new_page.set_tree_node(self._site, target=parent, position='last-child')
             new_page.save()
 
-        translation = self.create_translation(new_page)
+        translations = []
+        if canonical:
+            # Create all translations
+            for lang in source.get_languages():
+                translations.append(self.create_translation(lang, new_page))
+        else:
+            translations.append(self.create_translation(self._language, new_page))
 
         if source:
             extension_pool.copy_extensions(
                 source_page=source,
                 target_page=new_page,
-                languages=[translation.language],
+                languages=[translation.language for translation in translations],
             )
 
         is_first = not (
@@ -339,7 +374,7 @@ class AddPageForm(BasePageForm):
 
         if is_first and not new_page.is_page_type:
             # its the first page. publish it right away
-            new_page.publish(translation.language)
+            new_page.publish(self._language)
             new_page.set_as_homepage(self._user)
         return new_page
 

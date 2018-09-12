@@ -214,3 +214,24 @@ def get_available_slug(site, path, language, suffix='copy', modified=False):
         path = '%s/%s' % (base, slug) if base else slug
         return get_available_slug(site, path, language, suffix, modified=True)
     return slug
+
+def generate_title_translations_from_canonical(parent_node, canonical, site, language):
+    """
+    Generates title translations based on a given page's parent node and canonical
+    parent_node is used to infer the path of the new node (parent_node.item.get_path())
+    parent_node can be None
+    """
+    if parent_node:
+        parent_path = parent_node.item.get_path(language)
+    else:
+        parent_path = ''
+
+    #  Generate temporary slug / path (will be modified by get_available_slug if collision)
+    tmp_slug = canonical.get_title_obj_attribute('slug', language=language)
+    tmp_path = u'%s/%s' % (parent_path, tmp_slug) if parent_path else tmp_slug
+    #  Final versions of slug and path
+    slug = get_available_slug(site, tmp_path, language, suffix='')
+    path = u'%s/%s' % (parent_path, slug) if parent_path else slug
+    title = canonical.get_title_obj_attribute('title', language=language)
+
+    return slug, path, title
